@@ -1,3 +1,14 @@
+"""Pluto SDR control - Rx side
+
+Automates the setup of a Pluto SDR unit as a CW receiver. Fairly simple as
+it just captures a predetermined number of samples and saves them in a binary
+file. Once the number of measurements is complete, the script exits but the
+Pluto SDR configuration persists.
+
+Details of the unit are logged to make sure parameters have been properly
+set up and to aid subsequent data analysis.
+"""
+
 import os
 import time
 import datetime
@@ -129,8 +140,16 @@ RX_POL = "H"
 
 NUM_MEAS = 20
 
-meas_filename = "_".join(["meas", str(DDS_FREQ_HZ), str(RX_LO_FREQ_HZ),
-                          str(RX_GAIN_DB), TX_POL, RX_POL])
+meas_filename = "_".join(
+    [
+        "meas",
+        str(DDS_FREQ_HZ),
+        str(RX_LO_FREQ_HZ),
+        str(RX_GAIN_DB),
+        TX_POL,
+        RX_POL,
+    ]
+)
 
 if __name__ == "__main__":
     global_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -149,9 +168,12 @@ if __name__ == "__main__":
     sdr_rx_logger.info(f"Serial number: {pluto._ctx.attrs['hw_serial']}")
     sdr_rx_logger.info(f"Firmware version: {pluto._ctx.attrs['fw_version']}")
     sdr_rx_logger.info(f"PHY model: {pluto._ctx.attrs['ad9361-phy,model']}")
-    sdr_rx_logger.info(f"XO Correction: "
-                       f"{pluto._ctx.attrs['ad9361-phy,xo_correction']}")
+    sdr_rx_logger.info(
+        f"XO Correction: " f"{pluto._ctx.attrs['ad9361-phy,xo_correction']}"
+    )
 
+    # ! Turning off the Tx LO on the receiver helps with noise and
+    # ! self-interference performance.
     ad9361_phy = pluto._ctrl
     tx_lo = ad9361_phy.find_channel("TX_LO")
     tx_lo.attrs["powerdown"].value = str(int(1))
@@ -173,14 +195,17 @@ if __name__ == "__main__":
     pluto.rx_hardwaregain_chan0 = RX_GAIN_DB
     sdr_rx_logger.info(f"Rx gain set to {pluto.rx_hardwaregain_chan0} dB")
 
-    sdr_rx_logger.info(f"Rx Path Sample Rates: "
-                       f"{pluto._ctx.devices[1].attrs['rx_path_rates'].value}")
-    sdr_rx_logger.info(f"FIR filter: "
-                       f"{pluto._ctrl.attrs['filter_fir_config'].value}")
+    sdr_rx_logger.info(
+        f"Rx Path Sample Rates: "
+        f"{pluto._ctx.devices[1].attrs['rx_path_rates'].value}"
+    )
+    sdr_rx_logger.info(
+        f"FIR filter: " f"{pluto._ctrl.attrs['filter_fir_config'].value}"
+    )
 
     for idx in range(NUM_MEAS):
-        filename = '_'.join([meas_filename, str(idx)])
-        filename = '.'.join([filename, 'iqbin'])
+        filename = "_".join([meas_filename, str(idx)])
+        filename = ".".join([filename, "iqbin"])
 
         samples = pluto.rx()
         samples = samples.astype(np.complex64)
@@ -188,6 +213,7 @@ if __name__ == "__main__":
 
         sdr_rx_logger.info(f"Measurement {idx+1} out of {NUM_MEAS} complete")
 
+        # ! Important for data analysis - samples are not contiguous
         time.sleep(1)
 
     logging.shutdown()

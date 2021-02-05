@@ -1,3 +1,14 @@
+"""Pluto SDR control - Tx side
+
+Automates the setup of a Pluto SDR unit as a CW transmitter. Fairly simple as
+it uses the on-board DDS functionality to generate the tone to be sent over
+the air. Once setup is complete the unit can be left alone until a different
+combination of parameters needs to be configured.
+
+Details of the unit are logged to make sure parameters have been properly
+set up and to aid subsequent data analysis.
+"""
+
 import os
 import time
 import datetime
@@ -138,8 +149,9 @@ if __name__ == "__main__":
     sdr_tx_logger.info(f"Serial number: {pluto._ctx.attrs['hw_serial']}")
     sdr_tx_logger.info(f"Firmware version: {pluto._ctx.attrs['fw_version']}")
     sdr_tx_logger.info(f"PHY model: {pluto._ctx.attrs['ad9361-phy,model']}")
-    sdr_tx_logger.info(f"XO Correction: "
-                       f"{pluto._ctx.attrs['ad9361-phy,xo_correction']}")
+    sdr_tx_logger.info(
+        f"XO Correction: " f"{pluto._ctx.attrs['ad9361-phy,xo_correction']}"
+    )
 
     pluto.tx_lo = TX_LO_FREQ_HZ
     sdr_tx_logger.info(f"Tx LO set to {pluto.tx_lo} Hz")
@@ -148,15 +160,18 @@ if __name__ == "__main__":
     sdr_tx_logger.info(f"Tx RF bandwidth set to {pluto.tx_rf_bandwidth} Hz")
 
     pluto.tx_hardwaregain_chan0 = TX_GAIN_DB
-    sdr_tx_logger.info(f"Tx attenuation set to"
-                       f" {pluto.tx_hardwaregain_chan0} dB")
+    sdr_tx_logger.info(
+        f"Tx attenuation set to" f" {pluto.tx_hardwaregain_chan0} dB"
+    )
 
     pluto.dds_single_tone(DDS_FREQ_HZ, DDS_SCALE)
     sdr_tx_logger.info(f"DDS frequency set to {DDS_FREQ_HZ} Hz")
     sdr_tx_logger.info(f"DDS scale set to {DDS_SCALE}")
 
-    sdr_tx_logger.info(f"Tx Path Sample Rates: "
-                       f"{pluto._ctx.devices[1].attrs['tx_path_rates'].value}")
+    sdr_tx_logger.info(
+        f"Tx Path Sample Rates: "
+        f"{pluto._ctx.devices[1].attrs['tx_path_rates'].value}"
+    )
 
     logging.shutdown()
 
