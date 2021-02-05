@@ -81,7 +81,7 @@ def log_ntp_time(logger: logging.Logger, ntp_server: str) -> None:
 
     ntp_client = ntplib.NTPClient()
     ntp_connected = False
-    ntp_retries = 0
+    ntp_retries = 3
 
     while not ntp_connected:
         try:
@@ -112,7 +112,7 @@ def log_ntp_time(logger: logging.Logger, ntp_server: str) -> None:
 
 EXPERIMENT_NAME = "ICAIR_Short_Sand_Tx"
 NTP_SERVER = "0.uk.pool.ntp.org"
-SDR_URI = "ip:plutoalice.local"
+SDR_URI = "ip:plutobob.local"
 
 TX_LO_FREQ_HZ = int(2.45e9)
 TX_RF_BW_HZ = int(500e3)
@@ -127,8 +127,19 @@ if __name__ == "__main__":
     sdr_tx_logger = setup_logger(EXPERIMENT_NAME, global_timestamp)
     log_ntp_time(sdr_tx_logger, NTP_SERVER)
 
-    pluto = adi.Pluto(SDR_URI)
-    sdr_tx_logger.info(f"Connected to {pluto._device_name}")
+    try:
+        pluto = adi.Pluto(SDR_URI)
+    except Exception as error:
+        sdr_tx_logger.critical(f"Could not connect to {SDR_URI}")
+        sdr_tx_logger.critical(f"Error message returned: {error.args[0]}")
+        exit()
+
+    sdr_tx_logger.info(f"Connected to: {pluto._ctx.attrs['hw_model']}")
+    sdr_tx_logger.info(f"Serial number: {pluto._ctx.attrs['hw_serial']}")
+    sdr_tx_logger.info(f"Firmware version: {pluto._ctx.attrs['fw_version']}")
+    sdr_tx_logger.info(f"PHY model: {pluto._ctx.attrs['ad9361-phy,model']}")
+    sdr_tx_logger.info(f"XO Correction: "
+                       f"{pluto._ctx.attrs['ad9361-phy,xo_correction']}")
 
     pluto.tx_lo = TX_LO_FREQ_HZ
     sdr_tx_logger.info(f"Tx LO set to {pluto.tx_lo} Hz")
@@ -143,6 +154,9 @@ if __name__ == "__main__":
     pluto.dds_single_tone(DDS_FREQ_HZ, DDS_SCALE)
     sdr_tx_logger.info(f"DDS frequency set to {DDS_FREQ_HZ} Hz")
     sdr_tx_logger.info(f"DDS scale set to {DDS_SCALE}")
+
+    sdr_tx_logger.info(f"Tx Path Sample Rates: "
+                       f"{pluto._ctx.devices[1].attrs['tx_path_rates'].value}")
 
     logging.shutdown()
 

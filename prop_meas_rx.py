@@ -82,7 +82,7 @@ def log_ntp_time(logger: logging.Logger, ntp_server: str) -> None:
 
     ntp_client = ntplib.NTPClient()
     ntp_connected = False
-    ntp_retries = 0
+    ntp_retries = 3
 
     while not ntp_connected:
         try:
@@ -127,7 +127,7 @@ DDS_FREQ_HZ = int(200e3)
 TX_POL = "H"
 RX_POL = "H"
 
-NUM_MEAS = 500
+NUM_MEAS = 20
 
 meas_filename = "_".join(["meas", str(DDS_FREQ_HZ), str(RX_LO_FREQ_HZ),
                           str(RX_GAIN_DB), TX_POL, RX_POL])
@@ -138,8 +138,19 @@ if __name__ == "__main__":
     sdr_rx_logger = setup_logger(EXPERIMENT_NAME, global_timestamp)
     log_ntp_time(sdr_rx_logger, NTP_SERVER)
 
-    pluto = adi.Pluto(SDR_URI)
-    sdr_rx_logger.info(f"Connected to {pluto._device_name}")
+    try:
+        pluto = adi.Pluto(SDR_URI)
+    except Exception as error:
+        sdr_rx_logger.critical(f"Could not connect to {SDR_URI}")
+        sdr_rx_logger.critical(f"Error message returned: {error.args[0]}")
+        exit()
+
+    sdr_rx_logger.info(f"Connected to: {pluto._ctx.attrs['hw_model']}")
+    sdr_rx_logger.info(f"Serial number: {pluto._ctx.attrs['hw_serial']}")
+    sdr_rx_logger.info(f"Firmware version: {pluto._ctx.attrs['fw_version']}")
+    sdr_rx_logger.info(f"PHY model: {pluto._ctx.attrs['ad9361-phy,model']}")
+    sdr_rx_logger.info(f"XO Correction: "
+                       f"{pluto._ctx.attrs['ad9361-phy,xo_correction']}")
 
     ad9361_phy = pluto._ctrl
     tx_lo = ad9361_phy.find_channel("TX_LO")
@@ -162,6 +173,11 @@ if __name__ == "__main__":
     pluto.rx_hardwaregain_chan0 = RX_GAIN_DB
     sdr_rx_logger.info(f"Rx gain set to {pluto.rx_hardwaregain_chan0} dB")
 
+    sdr_rx_logger.info(f"Rx Path Sample Rates: "
+                       f"{pluto._ctx.devices[1].attrs['rx_path_rates'].value}")
+    sdr_rx_logger.info(f"FIR filter: "
+                       f"{pluto._ctrl.attrs['filter_fir_config'].value}")
+
     for idx in range(NUM_MEAS):
         filename = '_'.join([meas_filename, str(idx)])
         filename = '.'.join([filename, 'iqbin'])
@@ -170,7 +186,7 @@ if __name__ == "__main__":
         samples = samples.astype(np.complex64)
         samples.tofile(filename)
 
-        sdr_rx_logger.info(f"Measurement {idx} out of {NUM_MEAS} complete")
+        sdr_rx_logger.info(f"Measurement {idx+1} out of {NUM_MEAS} complete")
 
         time.sleep(1)
 
