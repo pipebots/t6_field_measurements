@@ -18,6 +18,8 @@ The scripts control and record data from two Analog Devices Pluto SDR units, nic
 1. Both SDR units are connected to the same control computer. In this case just run the scripts one after the other with the parameters of your choice.
 2. The SDR units are connected to single-board computers (SBCs), such as a Raspberry Pi, which themselves are remotely accessible. In this case each file needs to be copied to the respective SBC and then run locally.
 
+The scripts take several command line arguments, the most important of which is the experiment name. Use that one to make sure your measurement files are not overwritten.
+
 ## Requirements
 
 As my current `Python` development environment is a bit polluted, I'll list the required packages here. Apologies.
@@ -25,11 +27,10 @@ As my current `Python` development environment is a bit polluted, I'll list the 
 - `Python==3.6`
 - `numpy==1.19.2`
 - `ntplib==0.3.4`
-- `pyadi==0.0.6` -> special one, requires `libiio` installed with Python bindings
+- `pyadi>=0.0.6` -> special one, requires `libiio` installed with Python bindings
 
 ## TO DO
 
-- Switch to command-line arguments or config files for the measurement parameters
 - Add modulated signals functionality
 - Use generated signal instead of a DDS tone?
 - Add unit and integration testing?

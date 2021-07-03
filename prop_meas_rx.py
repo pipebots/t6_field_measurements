@@ -12,10 +12,14 @@ set up and to aid subsequent data analysis.
 import os
 import time
 import datetime
+import argparse
 import logging
 import ntplib
 import numpy as np
 import adi
+
+
+NTP_SERVER = "0.uk.pool.ntp.org"
 
 
 def setup_logger(filename_base: str, timestamp: str) -> logging.Logger:
@@ -95,6 +99,8 @@ def log_ntp_time(logger: logging.Logger, ntp_server: str) -> None:
     ntp_connected = False
     ntp_retries = 3
 
+    logger.info(f"Attempting to connect to {ntp_server}")
+
     while not ntp_connected:
         try:
             ntp_time = ntp_client.request(ntp_server)
@@ -122,45 +128,16 @@ def log_ntp_time(logger: logging.Logger, ntp_server: str) -> None:
             logger.error("Could not perform NTP sync")
 
 
-EXPERIMENT_NAME = "ICAIR_Short_Sand_Rx"
-NTP_SERVER = "0.uk.pool.ntp.org"
-SDR_URI = "ip:plutobob.local"
-
-RX_LO_FREQ_HZ = int(2.45e9)
-RX_RF_BW_HZ = int(500e3)
-RX_GAIN_DB = int(20)
-
-SAMPLE_RATE = int(1024000)
-RX_BUFFER_SIZE = int(32768)
-
-DDS_FREQ_HZ = int(200e3)
-
-TX_POL = "H"
-RX_POL = "H"
-
-NUM_MEAS = 20
-
-meas_filename = "_".join(
-    [
-        "meas",
-        str(DDS_FREQ_HZ),
-        str(RX_LO_FREQ_HZ),
-        str(RX_GAIN_DB),
-        TX_POL,
-        RX_POL,
-    ]
-)
-
-if __name__ == "__main__":
+def main(args: argparse.Namespace):
     global_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    sdr_rx_logger = setup_logger(EXPERIMENT_NAME, global_timestamp)
+    sdr_rx_logger = setup_logger(args.EXPERIMENT_NAME, global_timestamp)
     log_ntp_time(sdr_rx_logger, NTP_SERVER)
 
     try:
-        pluto = adi.Pluto(SDR_URI)
+        pluto = adi.Pluto(args.SDR_URI)
     except Exception as error:
-        sdr_rx_logger.critical(f"Could not connect to {SDR_URI}")
+        sdr_rx_logger.critical(f"Could not connect to {args.SDR_URI}")
         sdr_rx_logger.critical(f"Error message returned: {error.args[0]}")
         exit()
 
@@ -179,44 +156,191 @@ if __name__ == "__main__":
     tx_lo.attrs["powerdown"].value = str(int(1))
     sdr_rx_logger.info("Tx LO powered down on Rx side")
 
-    pluto.rx_lo = RX_LO_FREQ_HZ
+    pluto.rx_lo = int(args.RX_LO_FREQ_HZ * 1e9)
     sdr_rx_logger.info(f"Rx LO set to {pluto.rx_lo} Hz")
 
-    pluto.rx_rf_bandwidth = RX_RF_BW_HZ
+    pluto.rx_rf_bandwidth = int(args.RX_RF_BW_HZ * 1e6)
     sdr_rx_logger.info(f"Rx RF bandwidth set to {pluto.rx_rf_bandwidth} Hz")
 
-    pluto.sample_rate = SAMPLE_RATE
+    pluto.sample_rate = int(args.SAMPLE_RATE * 1e6)
     sdr_rx_logger.info(f"ADC set to {pluto.sample_rate} samples per second")
 
-    pluto.rx_buffer_size = RX_BUFFER_SIZE
+    pluto.rx_buffer_size = args.RX_BUFFER_SIZE
     sdr_rx_logger.info(f"Rx buffer size set to {pluto.rx_buffer_size} samples")
 
     pluto.gain_control_mode_chan0 = "manual"
-    pluto.rx_hardwaregain_chan0 = RX_GAIN_DB
+    pluto.rx_hardwaregain_chan0 = args.RX_GAIN_DB
     sdr_rx_logger.info(f"Rx gain set to {pluto.rx_hardwaregain_chan0} dB")
 
     sdr_rx_logger.info(
         f"Rx Path Sample Rates: "
         f"{pluto._ctx.devices[1].attrs['rx_path_rates'].value}"
     )
-    sdr_rx_logger.info(
-        f"FIR filter: " f"{pluto._ctrl.attrs['filter_fir_config'].value}"
+
+    meas_filename = "_".join(
+        [
+            args.EXPERIMENT_NAME,
+            global_timestamp,
+            str(args.DDS_FREQ_HZ),
+            str(args.RX_LO_FREQ_HZ),
+            str(args.RX_GAIN_DB),
+            args.POL
+        ]
     )
 
-    for idx in range(NUM_MEAS):
-        filename = "_".join([meas_filename, str(idx)])
-        filename = ".".join([filename, "iqbin"])
+    for idx in range(args.NUM_MEAS):
+        try:
+            filename = "_".join([meas_filename, str(idx)])
+            filename = os.extsep.join([filename, "iqbin"])
 
-        samples = pluto.rx()
-        samples = samples.astype(np.complex64)
-        samples.tofile(filename)
+            samples = pluto.rx()
+            samples = samples.astype(np.complex64)
+            samples.tofile(filename)
 
-        sdr_rx_logger.info(f"Measurement {idx+1} out of {NUM_MEAS} complete")
+            sdr_rx_logger.info(
+                f"Measurement {idx+1} out of {args.NUM_MEAS} complete."
+                f" Imax: {np.max(np.real(samples))}"
+                f" Imin: {np.min(np.real(samples))}"
+                f" Qmax: {np.max(np.imag(samples))}"
+                f" Qmin: {np.min(np.imag(samples))}"
+            )
 
-        # ! Important for data analysis - samples are not contiguous
-        time.sleep(1)
+            # ! Important for data analysis - samples are not contiguous
+            time.sleep(1)
+        except KeyboardInterrupt:
+            sdr_rx_logger.warning("Received Ctrl-C interrupt")
+            break
+
+    sdr_rx_logger.info("Measurements complete")
 
     logging.shutdown()
 
-else:
-    print("Please run this script from the command prompt")
+
+def cli_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="prop_meas_rx",
+        description="Sets up a Pluto SDR as a CW Rx. Saves IQ samples in"
+                    " an np.complex64 format to an .iqbin file."
+                    " Saves diagnostic information to a .log file.",
+        usage="%(prog)s [parameters] sdr_uri",
+        allow_abbrev=False,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        epilog="Please make sure you are transmitting in an ISM band. For any"
+               " questions related to the meaning of the parameters consult"
+               " the online documentation from Analog Devices"
+               " (https://wiki.analog.com/university/tools/pluto)."
+    )
+
+    parser.add_argument(
+        "SDR_URI",
+        metavar="sdr_uri",
+        type=str,
+        help="The URI of the Pluto SDR, such as ip:192.168.7.1 or usb:1.5.2"
+    )
+
+    parser.add_argument(
+        "-n",
+        "--name",
+        metavar="EXPERIMENT NAME",
+        type=str,
+        action="store",
+        dest="EXPERIMENT_NAME",
+        default="ICAIR_Short_Sand_Tx",
+        help="A descriptive name of the measurements. Cannot contain spaces"
+    )
+
+    parser.add_argument(
+        "-l",
+        "--rx-lo",
+        metavar="RX LO FREQ",
+        type=float,
+        action="store",
+        dest="RX_LO_FREQ_HZ",
+        default=2.45,
+        help="The frequency, in GHz, of the Rx LO"
+    )
+
+    parser.add_argument(
+        "-b",
+        "--rx-bw",
+        metavar="RX RF BANDWIDTH",
+        type=float,
+        action="store",
+        dest="RX_RF_BW_HZ",
+        default=0.5,
+        help="The bandwidth, in MHz, of the Rx RF filter"
+    )
+
+    parser.add_argument(
+        "-g",
+        "--rx-gain",
+        metavar="GAIN",
+        type=int,
+        action="store",
+        dest="RX_GAIN_DB",
+        default=20,
+        help="The total gain, in dB, of the Rx chain"
+    )
+
+    parser.add_argument(
+        "-s",
+        "--sample-rate",
+        type=float,
+        action="store",
+        dest="SAMPLE_RATE",
+        default=1.024,
+        help="The sample rate, in Msps, of the Rx ADC"
+    )
+
+    parser.add_argument(
+        "-u",
+        "--buf-size",
+        type=int,
+        action="store",
+        dest="RX_BUFFER_SIZE",
+        default=32768,
+        help="The size, in samples, of the Rx buffer"
+    )
+
+    parser.add_argument(
+        "-f",
+        "--dds-freq",
+        metavar="DDS FREQ",
+        type=float,
+        action="store",
+        dest="DDS_FREQ_HZ",
+        default=200,
+        help="The DDS frequency, in kHz. Input tone will be expected at"
+             " (Rx LO + DDS)"
+    )
+
+    parser.add_argument(
+        "-p",
+        "--pol",
+        metavar="POLARISATION",
+        type=str,
+        action="store",
+        dest="POL",
+        default="VV",
+        help="The polarisation of the Tx and the Rx, e.g. VV, HH, VH, etc."
+    )
+
+    parser.add_argument(
+        "-c",
+        "--count",
+        metavar="NUMBER",
+        type=int,
+        action="store",
+        dest="NUM_MEAS",
+        default=300,
+        help="The number of measurements to take"
+    )
+
+    args = parser.parse_args()
+
+    return args
+
+
+if __name__ == "__main__":
+    args = cli_args()
+    main(args)

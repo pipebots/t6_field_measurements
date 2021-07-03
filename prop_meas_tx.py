@@ -12,9 +12,13 @@ set up and to aid subsequent data analysis.
 import os
 import time
 import datetime
+import argparse
 import logging
 import ntplib
 import adi
+
+
+NTP_SERVER = "0.uk.pool.ntp.org"
 
 
 def setup_logger(filename_base: str, timestamp: str) -> logging.Logger:
@@ -94,6 +98,8 @@ def log_ntp_time(logger: logging.Logger, ntp_server: str) -> None:
     ntp_connected = False
     ntp_retries = 3
 
+    logger.info(f"Attempting to connect to {ntp_server}")
+
     while not ntp_connected:
         try:
             ntp_time = ntp_client.request(ntp_server)
@@ -121,27 +127,16 @@ def log_ntp_time(logger: logging.Logger, ntp_server: str) -> None:
             logger.error("Could not perform NTP sync")
 
 
-EXPERIMENT_NAME = "ICAIR_Short_Sand_Tx"
-NTP_SERVER = "0.uk.pool.ntp.org"
-SDR_URI = "ip:plutobob.local"
-
-TX_LO_FREQ_HZ = int(2.45e9)
-TX_RF_BW_HZ = int(500e3)
-TX_GAIN_DB = int(-20)
-
-DDS_FREQ_HZ = int(200e3)
-DDS_SCALE = 1.0
-
-if __name__ == "__main__":
+def main(args: argparse.Namespace):
     global_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    sdr_tx_logger = setup_logger(EXPERIMENT_NAME, global_timestamp)
+    sdr_tx_logger = setup_logger(args.EXPERIMENT_NAME, global_timestamp)
     log_ntp_time(sdr_tx_logger, NTP_SERVER)
 
     try:
-        pluto = adi.Pluto(SDR_URI)
+        pluto = adi.Pluto(args.SDR_URI)
     except Exception as error:
-        sdr_tx_logger.critical(f"Could not connect to {SDR_URI}")
+        sdr_tx_logger.critical(f"Could not connect to {args.SDR_URI}")
         sdr_tx_logger.critical(f"Error message returned: {error.args[0]}")
         exit()
 
@@ -153,27 +148,124 @@ if __name__ == "__main__":
         f"XO Correction: " f"{pluto._ctx.attrs['ad9361-phy,xo_correction']}"
     )
 
-    pluto.tx_lo = TX_LO_FREQ_HZ
+    pluto.tx_lo = int(args.TX_LO_FREQ_HZ * 1e9)
     sdr_tx_logger.info(f"Tx LO set to {pluto.tx_lo} Hz")
 
-    pluto.tx_rf_bandwidth = TX_RF_BW_HZ
+    pluto.tx_rf_bandwidth = int(args.TX_RF_BW_HZ * 1e6)
     sdr_tx_logger.info(f"Tx RF bandwidth set to {pluto.tx_rf_bandwidth} Hz")
 
-    pluto.tx_hardwaregain_chan0 = TX_GAIN_DB
+    pluto.tx_hardwaregain_chan0 = int(-args.TX_GAIN_DB)
     sdr_tx_logger.info(
         f"Tx attenuation set to" f" {pluto.tx_hardwaregain_chan0} dB"
     )
 
-    pluto.dds_single_tone(DDS_FREQ_HZ, DDS_SCALE)
-    sdr_tx_logger.info(f"DDS frequency set to {DDS_FREQ_HZ} Hz")
-    sdr_tx_logger.info(f"DDS scale set to {DDS_SCALE}")
+    pluto.dds_single_tone(int(args.DDS_FREQ_HZ * 1e3), args.DDS_SCALE)
+    sdr_tx_logger.info(f"DDS frequency set to {args.DDS_FREQ_HZ} kHz")
+    sdr_tx_logger.info(f"DDS scale set to {args.DDS_SCALE}")
 
     sdr_tx_logger.info(
         f"Tx Path Sample Rates: "
         f"{pluto._ctx.devices[1].attrs['tx_path_rates'].value}"
     )
 
+    sdr_tx_logger.info("Setup complete")
+
     logging.shutdown()
 
-else:
-    print("Please run this script from the command prompt")
+
+def cli_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="prop_meas_tx",
+        description="Sets up a Pluto SDR as a CW Tx. Saves IQ samples in"
+                    " an np.complex64 format to an .iqbin file."
+                    " Saves diagnostic information to a .log file.",
+        usage="%(prog)s [parameters] sdr_uri",
+        allow_abbrev=False,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        epilog="Please make sure you are transmitting in an ISM band. For any"
+               " questions related to the meaning of the parameters consult"
+               " the online documentation from Analog Devices"
+               " (https://wiki.analog.com/university/tools/pluto)."
+    )
+
+    parser.add_argument(
+        "SDR_URI",
+        metavar="sdr_uri",
+        type=str,
+        help="The URI of the Pluto SDR, such as ip:192.168.7.1 or usb:1.5.2",
+    )
+
+    parser.add_argument(
+        "-n",
+        "--name",
+        metavar="EXPERIMENT NAME",
+        type=str,
+        action="store",
+        dest="EXPERIMENT_NAME",
+        default="ICAIR_Short_Sand_Tx",
+        help="A descriptive name of the measurements. Cannot contain spaces"
+    )
+
+    parser.add_argument(
+        "-l",
+        "--tx-lo",
+        metavar="TX LO FREQ",
+        type=float,
+        action="store",
+        dest="TX_LO_FREQ_HZ",
+        default=2.45,
+        help="The frequency, in GHz, of the Tx LO"
+    )
+
+    parser.add_argument(
+        "-b",
+        "--tx-bw",
+        metavar="TX RF BANDWIDTH",
+        type=float,
+        action="store",
+        dest="TX_RF_BW_HZ",
+        default=0.5,
+        help="The bandwidth, in MHz, of the Tx RF filter"
+    )
+
+    parser.add_argument(
+        "-g",
+        "--tx-gain",
+        metavar="GAIN",
+        type=int,
+        action="store",
+        dest="TX_GAIN_DB",
+        default=20,
+        help="The attenuation, in dB, of the Tx front end"
+    )
+
+    parser.add_argument(
+        "-f",
+        "--dds-freq",
+        metavar="DDS FREQ",
+        type=float,
+        action="store",
+        dest="DDS_FREQ_HZ",
+        default=200,
+        help="The DDS frequency, in kHz. Output tone frequency will be"
+             " (Tx LO + DDS)"
+    )
+
+    parser.add_argument(
+        "-s",
+        "--dds-scale",
+        metavar="SCALE",
+        type=float,
+        action="store",
+        dest="DDS_SCALE",
+        default=1.0,
+        help="The scaling of the DDS signal amplitude, 0 <= SCALE <= 1"
+    )
+
+    args = parser.parse_args()
+
+    return args
+
+if __name__ == "__main__":
+    args = cli_args()
+    main(args)
