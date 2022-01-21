@@ -2,165 +2,135 @@ import time
 import datetime
 import logging
 
-import ntplib
-from netmiko import ConnectHandler
+import netmiko
+
+import helpers
 
 
 NTP_SERVER = "0.uk.pool.ntp.org"
 
 
-def setup_logger(filename_base: str, timestamp: str) -> logging.Logger:
-    """Sets up a `Logger` object for diagnostic and debug
+def reset_ot_node(connection: netmiko.ConnectHandler) -> None:
+    connection.send_command("sudo wpantund &")
+    connection.send_command("sudo wpanctl leave")
+    connection.send_command("sudo wpanctl reset")
+    connection.clear_buffer()
 
-    A standard function to set up and configure a Python `Logger` object
-    for recording diagnostic and debug data.
 
-    Args:
-        filename_base: A `str` containing a user-supplied filename to better
-                      identify the logs.
-        timestamp: A `str` with the date and time the logger was started
-                   to differentiate between different runs
+def log_ot_counters(logger: logging.Logger,
+                    connection: netmiko.ConnectHandler) -> None:
+    helpers.log_multiline_response(logger, connection.send_command(
+        "sudo wpanctl get NCP:Counter:AllIPv6"
+    ))
+    helpers.log_multiline_response(logger, connection.send_command(
+        "sudo wpanctl get NCP:Counter:AllMac"
+    ))
 
-    Returns:
-        A `Logger` object with appropriate configurations. All the messages
-        are duplicated to the command prompt as well.
 
-    Raises:
-        Nothing
-    """
-    log_filename = "_".join([timestamp, filename_base])
-    log_filename = ".".join([log_filename, "log"])
-
-    logger = logging.getLogger(filename_base)
-
-    logger_handler = logging.FileHandler(log_filename)
-    logger_handler.setLevel(logging.INFO)
-
-    fmt_string = "{asctime:s} {msecs:.3f} \t {levelname:^10s} \t {message:s}"
-    datefmt_string = "%Y-%m-%d %H:%M:%S"
-    logger_formatter = logging.Formatter(
-        fmt=fmt_string, datefmt=datefmt_string, style="{"
+def ot_ncp_ext_address(connection: netmiko.ConnectHandler) -> str:
+    ncp_ext_address = connection.send_command(
+        "sudo wpanctl get NCP:ExtendedAddress"
     )
-
-    # * This is to ensure consistent formatting of the miliseconds field
-    logger_formatter.converter = time.gmtime
-
-    logger_handler.setFormatter(logger_formatter)
-    logger.addHandler(logger_handler)
-
-    # * This enables the streaming of messages to stdout
-    logging.basicConfig(
-        format=fmt_string,
-        datefmt=datefmt_string,
-        style="{",
-        level=logging.INFO,
-    )
-    logger.info("Logger configuration done")
-
-    return logger
+    ncp_ext_address = ncp_ext_address.split(" ")[-1][1:-1]
+    return ncp_ext_address
 
 
-def log_ntp_time(logger: logging.Logger, ntp_server: str) -> None:
-    """A helper function to record the time as received from an NTP server
+global_timestamp = datetime.datetime.now()
+ot_logger = helpers.setup_logger(
+    "OT_ICAIR", global_timestamp.strftime("%Y%m%d_%H%M%S")
+)
+helpers.log_ntp_time(ot_logger, NTP_SERVER)
 
-    Establishes a connection with a specified NTP server, receives the time,
-    and logs it in both UTC and local time zones. When connecting to the
-    NTP server there is a chance that no response is received. In this case
-    the function will sleep (blocking) for three (3) seconds before attempting
-    again. After three (3) retries with no response the function will log an
-    error message and return.
+ntwk_name = f"icair-{global_timestamp.strftime('%y%m%d')}"
 
-    Args:
-        logger: The `logging.Logger` object configured by `setup_logger`
-        ntp_server: A `str` with the web address of an NTP server
-
-    Returns:
-        None, the time received from the NTP server is recorded in the log
-        file and on the screen
-
-    Raises:
-        Nothing
-    """
-
-    ntp_client = ntplib.NTPClient()
-    ntp_connected = False
-    ntp_retries = 3
-
-    logger.info(f"Attempting to connect to {ntp_server}")
-
-    while not ntp_connected:
-        try:
-            ntp_time = ntp_client.request(ntp_server)
-        except ntplib.NTPException:
-            logger.warning("No response from NTP server, sleeping for 3 sec")
-            time.sleep(3)
-            ntp_retries -= 1
-        else:
-            ntp_connected = True
-            logger.info("Got response from NTP server")
-
-            ntp_time_utc = ntp_time.dest_timestamp
-            ntp_time_utc = datetime.datetime.fromtimestamp(ntp_time_utc)
-            ntp_time_utc = ntp_time_utc.strftime("%Y-%m-%d %H:%M:%S %f")
-
-            ntp_time_ltz = ntp_time.dest_time
-            ntp_time_ltz = datetime.datetime.fromtimestamp(ntp_time_ltz)
-            ntp_time_ltz = ntp_time_ltz.strftime("%Y-%m-%d %H:%M:%S %f")
-
-            logger.info(f"NTP UTC time: {ntp_time_utc}")
-            logger.info(f"NTP Local timezone time: {ntp_time_ltz}")
-
-        if 0 >= ntp_retries:
-            ntp_connected = True
-            logger.error("Could not perform NTP sync")
-
-
-def log_response(logger: logging.Logger, response: str) -> None:
-    for line in response.split("\n"):
-        logger.info(line)
-
-
-global_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-ot_logger = setup_logger("OT_ICAIR", global_timestamp)
-log_ntp_time(ot_logger, NTP_SERVER)
-
-pi1 = ConnectHandler(
+ot_leader = netmiko.ConnectHandler(
     device_type="linux", host="plutopi1.local", username="pi",
     password="orangeandmango2020"
 )
-ot_logger.info("Connected to PlutoPi1")
+ot_logger.info("Connected to PlutoPi1 - OT Leader")
 
-pi2 = ConnectHandler(
+ot_router_1 = netmiko.ConnectHandler(
     device_type="linux", host="plutopi2.local", username="pi",
     password="cherriesandberries2020"
 )
-ot_logger.info("Connected to PlutoPi2")
+ot_logger.info("Connected to PlutoPi2 - OT Router 1")
 
-pi3 = ConnectHandler(
+ot_router_2 = netmiko.ConnectHandler(
     device_type="linux", host="plutopi3.local", username="pi",
     password="appleandblackcurrant2020"
 )
-ot_logger.info("Connected to PlutoPi3")
+ot_logger.info("Connected to PlutoPi3 - OT Router 2")
 
-pi4 = ConnectHandler(
+ot_router_3 = netmiko.ConnectHandler(
     device_type="linux", host="plutopi4.local", username="pi",
     password="summerfruits2020"
 )
-ot_logger.info("Connected to PlutoPi4")
+ot_logger.info("Connected to PlutoPi4 - OT Router 3")
 
+reset_ot_node(ot_leader)
+log_ot_counters(ot_logger, ot_leader)
+ot_logger.info("PlutoPi1 - OT Leader - Initialised")
 
+reset_ot_node(ot_router_1)
+log_ot_counters(ot_logger, ot_router_1)
+ot_logger.info("PlutoPi2 - OT Router 1 - Initialised")
 
+reset_ot_node(ot_router_2)
+log_ot_counters(ot_logger, ot_router_2)
+ot_logger.info("PlutoPi2 - OT Router 2 - Initialised")
 
-pi1.disconnect()
-ot_logger.info("Disconnected from PlutoPi1")
+reset_ot_node(ot_router_3)
+log_ot_counters(ot_logger, ot_router_3)
+ot_logger.info("PlutoPi2 - OT Router 3 - Initialised")
 
-pi2.disconnect()
-ot_logger.info("Disconnected from PlutoPi2")
+response = ot_leader.send_command(f"sudo wpanctl form {ntwk_name}")
+if "success" in response:
+    ot_logger.info(f"Leader formed OpenThread network {ntwk_name}")
+else:
+    ot_logger.critical("Could not form OpenThread network")
+    ot_leader.disconnect()
+    ot_router_1.disconnect()
+    ot_router_2.disconnect()
+    ot_router_3.disconnect()
+    logging.shutdown()
+    raise RuntimeError("Could not form OpenThread network")
 
-pi3.disconnect()
-ot_logger.info("Disconnected from PlutoPi3")
+time.sleep(5)
 
-pi4.disconnect()
-ot_logger.info("Disconnected from PlutoPi4")
+response = ot_leader.send_command("sudo wpanctl get IPv6:MeshLocalAddress")
+leader_ipv6 = response.split(" ")[-1][1:-1]
+ot_logger.info(f"Leader Mesh Local IPv6 address: {leader_ipv6}")
+
+response = ot_leader.send_command("sudo wpanctl get Network:PANID")
+ntwk_panid = response.split(" ")[-1]
+ot_logger.info(f"OpenThread Network PAN ID: {ntwk_panid}")
+
+response = ot_leader.send_command("sudo wpanctl get Network:XPANID")
+ntwk_xpanid = response.split(" ")[-1]
+ot_logger.info(f"OpenThread Network XPAN ID: {ntwk_xpanid}")
+
+response = ot_leader.send_command("sudo wpanctl get Network:Key")
+ntwk_key = response.split(" ")[-1][1:-1]
+ot_logger.info(f"OpenThread Network Key: {ntwk_key}")
+
+response = ot_leader.send_command("sudo wpanctl get NCP:Channel")
+ntwk_channel = response.split(" ")[-1]
+ot_logger.info(f"OpenThread Network Channel: {ntwk_channel}")
+
+response = ot_leader.send_command("sudo wpanctl get NCP:Frequency")
+ntwk_freq = response.split(" ")[-1]
+ot_logger.info(f"OpenThread Channel Frequency: {ntwk_freq} kHz")
+
+leader_mac = ot_ncp_ext_address(ot_leader)
+ot_logger.info(f"Leader Extended Address: {leader_mac}")
+
+router_1_mac = ot_ncp_ext_address(ot_router_1)
+ot_logger.info(f"Router 1 Extended Address: {router_1_mac}")
+
+router_2_mac = ot_ncp_ext_address(ot_router_2)
+ot_logger.info(f"Router 2 Extended Address: {router_2_mac}")
+
+router_3_mac = ot_ncp_ext_address(ot_router_3)
+ot_logger.info(f"Router 3 Extended Address: {router_3_mac}")
 
 logging.shutdown()
