@@ -27,6 +27,16 @@ def log_ot_counters(logger: logging.Logger,
     ))
 
 
+def log_ot_neighbour_table(logger: logging.Logger,
+                           connection: netmiko.ConnectHandler) -> None:
+    helpers.log_multiline_response(logger, connection.send_command(
+        "sudo wpanctl get Thread:NeighborTable"
+    ))
+    helpers.log_multiline_response(logger, connection.send_command(
+        "sudo wpanctl get Thread:NeighborTable:ErrorRates"
+    ))
+
+
 def ot_ncp_ext_address(connection: netmiko.ConnectHandler) -> str:
     ncp_ext_address = connection.send_command(
         "sudo wpanctl get NCP:ExtendedAddress"
@@ -132,5 +142,86 @@ ot_logger.info(f"Router 2 Extended Address: {router_2_mac}")
 
 router_3_mac = ot_ncp_ext_address(ot_router_3)
 ot_logger.info(f"Router 3 Extended Address: {router_3_mac}")
+
+ot_leader.send_command(
+    f"sudo wpanctl add MAC:Allowlist:Entries {router_1_mac}"
+)
+
+ot_router_1.send_command(
+    f"sudo wpanctl add MAC:Allowlist:Entries {leader_mac}"
+)
+ot_router_1.send_command(
+    f"sudo wpanctl add MAC:Allowlist:Entries {router_2_mac}"
+)
+
+ot_router_2.send_command(
+    f"sudo wpanctl add MAC:Allowlist:Entries {router_1_mac}"
+)
+ot_router_2.send_command(
+    f"sudo wpanctl add MAC:Allowlist:Entries {router_3_mac}"
+)
+
+ot_router_3.send_command(
+    f"sudo wpanctl add MAC:Allowlist:Entries {router_2_mac}"
+)
+
+ot_logger.info("Set up MAC Allowlists on all nodes")
+
+ot_router_1.send_command(f"sudo wpanctl set Network:Key {ntwk_key}")
+ot_router_2.send_command(f"sudo wpanctl set Network:Key {ntwk_key}")
+ot_router_3.send_command(f"sudo wpanctl set Network:Key {ntwk_key}")
+
+ot_logger.info("Set OpenThread network key on all routers")
+
+ot_leader.send_command("sudo wpanctl set NCP:TXPower 8")
+ot_router_1.send_command("sudo wpanctl set NCP:TXPower 8")
+ot_router_2.send_command("sudo wpanctl set NCP:TXPower 8")
+ot_router_3.send_command("sudo wpanctl set NCP:TXPower 8")
+
+ot_logger.info("Set max TX power on all nodes")
+
+ot_leader.send_command("sudo wpanctl permit-join --network-wide")
+time.sleep(5)
+ot_router_1.send_command(
+    f"sudo wpanctl join {ntwk_name} -T 2 -p {ntwk_panid} -x {ntwk_xpanid}"
+)
+time.sleep(30)
+node_state = ot_router_1.send_command("sudo wpanctl get NCP:State")
+node_tpe = ot_router_1.send_command("sudo wpanctl get NCP:NodeType")
+
+ot_leader.send_command("sudo wpanctl permit-join --network-wide")
+time.sleep(5)
+ot_router_2.send_command(
+    f"sudo wpanctl join {ntwk_name} -T 2 -p {ntwk_panid} -x {ntwk_xpanid}"
+)
+time.sleep(30)
+node_state = ot_router_2.send_command("sudo wpanctl get NCP:State")
+node_tpe = ot_router_2.send_command("sudo wpanctl get NCP:NodeType")
+
+ot_leader.send_command("sudo wpanctl permit-join --network-wide")
+time.sleep(5)
+ot_router_3.send_command(
+    f"sudo wpanctl join {ntwk_name} -T 2 -p {ntwk_panid} -x {ntwk_xpanid}"
+)
+time.sleep(30)
+node_state = ot_router_3.send_command("sudo wpanctl get NCP:State")
+node_tpe = ot_router_3.send_command("sudo wpanctl get NCP:NodeType")
+
+ot_leader.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
+ot_router_1.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
+ot_router_2.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
+ot_router_3.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
+
+time.sleep(180)
+
+log_ot_counters(ot_logger, ot_leader)
+log_ot_counters(ot_logger, ot_router_1)
+log_ot_counters(ot_logger, ot_router_2)
+log_ot_counters(ot_logger, ot_router_3)
+
+log_ot_neighbour_table(ot_logger, ot_leader)
+log_ot_neighbour_table(ot_logger, ot_router_1)
+log_ot_neighbour_table(ot_logger, ot_router_2)
+log_ot_neighbour_table(ot_logger, ot_router_3)
 
 logging.shutdown()
