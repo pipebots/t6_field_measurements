@@ -39,6 +39,7 @@ def pluto_cw_tone_dds(params: Dict, logger: logging.Logger) -> None:
     Raises:
         RuntimeError: In case a connection to the Pluto cannot be established.
     """
+
     try:
         pluto = adi.Pluto(params["SDR_URI"])
     except Exception as error:
@@ -95,6 +96,7 @@ def cli_args() -> argparse.Namespace:
     Notes:
         The script will terminate if the URI of the SDR is not specified
     """
+
     parser = argparse.ArgumentParser(
         prog="prop_meas_tx",
         description="Sets up a Pluto SDR as a CW Tx. Uses the built-in DDS"

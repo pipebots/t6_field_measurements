@@ -9,6 +9,8 @@
 
 # In-Pipe RF Propagation Measurements - ICAIR
 
+# TODO: Update README. This is outdated.
+
 ## Overview
 
 These scripts are used to automate the measurement of in-pipe RF propagation at ICAIR. There are two scripts, `prop_meas_rx.py` and `prop_meas_tx.py`, for the Rx and Tx unit respectively.

@@ -1,3 +1,11 @@
+"""Collection of general purpose functions
+
+These are various functions that I have found myself reusing in multiple
+modules. So far mainly revolve around setting up Python `Logger` objects. In
+the future could contain other stuff as well, and could perhaps be moved to
+a separate package.
+"""
+
 import time
 import datetime
 import logging
@@ -24,6 +32,7 @@ def setup_logger(filename_base: str, timestamp: str) -> logging.Logger:
     Raises:
         Nothing
     """
+
     log_filename = "_".join([timestamp, filename_base])
     log_filename = ".".join([log_filename, "log"])
 
@@ -57,7 +66,8 @@ def setup_logger(filename_base: str, timestamp: str) -> logging.Logger:
     return logger
 
 
-def log_ntp_time(logger: logging.Logger, ntp_server: str) -> None:
+def log_ntp_time(logger: logging.Logger,
+                 ntp_server: str = "0.uk.pool.ntp.org") -> None:
     """A helper function to record the time as received from an NTP server
 
     Establishes a connection with a specified NTP server, receives the time,
@@ -113,5 +123,27 @@ def log_ntp_time(logger: logging.Logger, ntp_server: str) -> None:
 
 
 def log_multiline_response(logger: logging.Logger, response: str) -> None:
+    """Writes a multiline string to a log file
+
+    Sometimes the return value of functions responsible for remote control of
+    instruments and devices, such as VISA or netmiko connections, contain
+    newlines in them. This functions splits such a return value into indivi-
+    dual lines and logs each one separately.
+
+    Note:
+        Currently the only supported level is INFO. This could change in the
+        future.
+
+    Args:
+        logger: A `logging.Logger` object, maybe configured by `setup_logger`
+        response: A `str` with the multiline response.
+
+    Returns:
+        Nothing
+
+    Raises:
+        Nothing
+    """
+
     for line in response.split("\n"):
         logger.info(line)
