@@ -137,7 +137,7 @@ ot_logger = helpers.setup_logger(
 )
 helpers.log_ntp_time(ot_logger, NTP_SERVER)
 
-ntwk_name = f"icair-{global_timestamp.strftime('%y%m%d')}"
+ntwk_name = f"icair-{global_timestamp.strftime('%d%m%y')}"
 
 # * Establish remote connections to the Pis. Credentials are hard-coded in the
 # * first instance.
@@ -187,7 +187,7 @@ ot_logger.info("PlutoPi2 - OT Router 3 - Initialised")
 # * This should be possible all the time, but in case there is an issue with
 # * the NCP we abort here.
 response = ot_leader.send_command(f"sudo wpanctl form {ntwk_name}")
-if "success" in response:
+if "success" in response.lower():
     ot_logger.info(f"Leader formed OpenThread network {ntwk_name}")
 else:
     ot_logger.critical("Could not form OpenThread network")
@@ -247,16 +247,20 @@ ot_logger.info("Set OpenThread network key on all routers")
 # ! from the leader to the rest of the nodes. We also check and wait more to
 # ! make sure the nodes have associated with the network and been promoted to
 # ! routers.
+join_cmd = (
+    f"sudo wpanctl join {ntwk_name} -T 2 -p {ntwk_panid} -x {ntwk_xpanid} "
+    f"-c {ntwk_channel}"
+)
+
 ot_leader.send_command("sudo wpanctl permit-join --network-wide")
 time.sleep(5)
-ot_router_1.send_command(
-    f"sudo wpanctl join {ntwk_name} -T 2 -p {ntwk_panid} -x {ntwk_xpanid}"
-)
+ot_router_1.send_command(join_cmd)
+
 while True:
     time.sleep(30)
     node_state = ot_router_1.send_command("sudo wpanctl get NCP:State")
-    node_type = ot_router_1.send_command("sudo wpanctl get NCP:NodeType")
-    if "associated" in node_state and "router" in node_type:
+    node_type = ot_router_1.send_command("sudo wpanctl get Network:NodeType")
+    if "associated" in node_state.lower() and "router" in node_type.lower():
         ot_logger.info("Router 1 successfully joined the network")
         response = ot_router_1.send_command(
             "sudo wpanctl get IPv6:MeshLocalAddress"
@@ -267,14 +271,13 @@ while True:
 
 ot_leader.send_command("sudo wpanctl permit-join --network-wide")
 time.sleep(5)
-ot_router_2.send_command(
-    f"sudo wpanctl join {ntwk_name} -T 2 -p {ntwk_panid} -x {ntwk_xpanid}"
-)
+ot_router_2.send_command(join_cmd)
+
 while True:
     time.sleep(30)
     node_state = ot_router_2.send_command("sudo wpanctl get NCP:State")
-    node_type = ot_router_2.send_command("sudo wpanctl get NCP:NodeType")
-    if "associated" in node_state and "router" in node_type:
+    node_type = ot_router_2.send_command("sudo wpanctl get Network:NodeType")
+    if "associated" in node_state.lower() and "router" in node_type.lower():
         ot_logger.info("Router 2 successfully joined the network")
         response = ot_router_2.send_command(
             "sudo wpanctl get IPv6:MeshLocalAddress"
@@ -285,14 +288,13 @@ while True:
 
 ot_leader.send_command("sudo wpanctl permit-join --network-wide")
 time.sleep(5)
-ot_router_3.send_command(
-    f"sudo wpanctl join {ntwk_name} -T 2 -p {ntwk_panid} -x {ntwk_xpanid}"
-)
+ot_router_3.send_command(join_cmd)
+
 while True:
     time.sleep(30)
     node_state = ot_router_3.send_command("sudo wpanctl get NCP:State")
-    node_type = ot_router_3.send_command("sudo wpanctl get NCP:NodeType")
-    if "associated" in node_state and "router" in node_type:
+    node_type = ot_router_3.send_command("sudo wpanctl get Network:NodeType")
+    if "associated" in node_state.lower() and "router" in node_type.lower():
         ot_logger.info("Router 3 successfully joined the network")
         response = ot_router_3.send_command(
             "sudo wpanctl get IPv6:MeshLocalAddress"
@@ -351,14 +353,20 @@ ot_router_2.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
 ot_router_3.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
 time.sleep(180)
 
+ot_logger.info("Leader packet counters, neighbour table, and error rates")
 log_ot_counters(ot_logger, ot_leader)
-log_ot_counters(ot_logger, ot_router_1)
-log_ot_counters(ot_logger, ot_router_2)
-log_ot_counters(ot_logger, ot_router_3)
-
 log_ot_neighbour_table(ot_logger, ot_leader)
+
+ot_logger.info("Router 1 packet counters, neighbour table, and error rates")
+log_ot_counters(ot_logger, ot_router_1)
 log_ot_neighbour_table(ot_logger, ot_router_1)
+
+ot_logger.info("Router 2 packet counters, neighbour table, and error rates")
+log_ot_counters(ot_logger, ot_router_2)
 log_ot_neighbour_table(ot_logger, ot_router_2)
+
+ot_logger.info("Router 3 packet counters, neighbour table, and error rates")
+log_ot_counters(ot_logger, ot_router_3)
 log_ot_neighbour_table(ot_logger, ot_router_3)
 
 ot_logger.info("OpenThread linear mesh network setup complete")
