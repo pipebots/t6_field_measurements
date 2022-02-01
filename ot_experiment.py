@@ -10,8 +10,8 @@ This script sets up a very particular topology, which is the one used for
 taking measurements at ICAIR, i.e. a linear mesh. A lot of diagnostic info
 is recorded at certain stages.
 
-In the future this script will be extended to remotely run the `pink`,
-`iperf3`, and other experiments with network traffic.
+Once the mesh topology has been established, we remotely run `ping` and `iperf3`
+test, to measure latency and throughput, respectively.
 """
 
 from itertools import product
@@ -167,23 +167,15 @@ ot_router_3 = netmiko.ConnectHandler(
 )
 ot_logger.info("Connected to PlutoPi4 - OT Router 3")
 
+all_nodes = [ot_leader, ot_router_1, ot_router_2, ot_router_3]
+routers = [ot_router_1, ot_router_2, ot_router_3]
+
 # * We log the packet counter values just after initialisation as a baseline
 # * for cross-referencing later after the ping and iperf tests.
-reset_ot_node(ot_leader)
-log_ot_counters(ot_logger, ot_leader)
-ot_logger.info("PlutoPi1 - OT Leader - Initialised")
-
-reset_ot_node(ot_router_1)
-log_ot_counters(ot_logger, ot_router_1)
-ot_logger.info("PlutoPi2 - OT Router 1 - Initialised")
-
-reset_ot_node(ot_router_2)
-log_ot_counters(ot_logger, ot_router_2)
-ot_logger.info("PlutoPi3 - OT Router 2 - Initialised")
-
-reset_ot_node(ot_router_3)
-log_ot_counters(ot_logger, ot_router_3)
-ot_logger.info("PlutoPi4 - OT Router 3 - Initialised")
+for node in all_nodes:
+    reset_ot_node(node)
+    log_ot_counters(ot_logger, node)
+    ot_logger.info(f"{node.host.split('.')[0]} - Initialised")
 
 # * One of the OpenThread nodes must form the network, becoming its `leader`.
 # * This should be possible all the time, but in case there is an issue with
@@ -193,15 +185,15 @@ if "success" in response.lower():
     ot_logger.info(f"Leader formed OpenThread network {ntwk_name}")
 else:
     ot_logger.critical("Could not form OpenThread network")
-    ot_leader.disconnect()
-    ot_router_1.disconnect()
-    ot_router_2.disconnect()
-    ot_router_3.disconnect()
+    for node in all_nodes:
+        node.disconnect()
     logging.shutdown()
     raise RuntimeError("Could not form OpenThread network")
 
 time.sleep(5)
 
+# * Once the network has been formed we log and save the parameters which are
+# * needed for the other nodes to join.
 response = ot_leader.send_command("sudo wpanctl get IPv6:MeshLocalAddress")
 leader_ipv6 = response.split(" ")[-1][1:-1]
 ot_logger.info(f"Leader Mesh Local IPv6 address: {leader_ipv6}")
@@ -228,19 +220,14 @@ ot_logger.info(f"OpenThread Channel Frequency: {ntwk_freq} kHz")
 
 # * Setting the TX transmit power to the maximum of 8 dBm is necessary when
 # * working in the pipe, and is specific to the nRF52840.
-ot_leader.send_command("sudo wpanctl set NCP:TXPower 8")
-ot_router_1.send_command("sudo wpanctl set NCP:TXPower 8")
-ot_router_2.send_command("sudo wpanctl set NCP:TXPower 8")
-ot_router_3.send_command("sudo wpanctl set NCP:TXPower 8")
-
+for node in all_nodes:
+    node.send_command("sudo wpanctl set NCP:TXPower 8")
 ot_logger.info("Set max TX power on all nodes")
 
 # ! Since we are in full control of all nodes we skip the commissioning
 # ! process and manually set the Network Key, PAN ID, and XPAN ID on all nodes.
-ot_router_1.send_command(f"sudo wpanctl set Network:Key {ntwk_key}")
-ot_router_2.send_command(f"sudo wpanctl set Network:Key {ntwk_key}")
-ot_router_3.send_command(f"sudo wpanctl set Network:Key {ntwk_key}")
-
+for router in routers:
+    router.send_command(f"sudo wpanctl set Network:Key {ntwk_key}")
 ot_logger.info("Set OpenThread network key on all routers")
 
 # ! From here on there are many `time.sleep()` calls. These are used to give
@@ -254,68 +241,39 @@ join_cmd = (
     f"-c {ntwk_channel}"
 )
 
-ot_leader.send_command("sudo wpanctl permit-join --network-wide")
-time.sleep(5)
-ot_router_1.send_command(join_cmd)
+# * We will hold the individual node's IPv6 addresses in a dict just in case, to
+# * avoid any potential issues with mismatches between node names and IPv6
+router_ipv6 = dict()
 
-while True:
-    time.sleep(30)
-    node_state = ot_router_1.send_command("sudo wpanctl get NCP:State")
-    node_type = ot_router_1.send_command("sudo wpanctl get Network:NodeType")
-    if "associated" in node_state.lower() and "router" in node_type.lower():
-        ot_logger.info("Router 1 successfully joined the network")
-        response = ot_router_1.send_command(
-            "sudo wpanctl get IPv6:MeshLocalAddress"
-        )
-        router_1_ipv6 = response.split(" ")[-1][1:-1]
-        ot_logger.info(f"Router 1 Mesh Local IPv6 address: {router_1_ipv6}")
-        break
-    else:
-        ot_logger.info(f"Current Router 1 Node State: {node_state}")
-        ot_logger.info(f"Current Router 1 Node Type: {node_type}")
-        ot_logger.info("Waiting for 30 seconds...")
+for router in routers:
+    router_name = router.host.split(".")[0]
+    ot_leader.send_command("sudo wpanctl permit-join --network-wide")
+    time.sleep(5)
+    router.send_command(join_cmd)
 
-ot_leader.send_command("sudo wpanctl permit-join --network-wide")
-time.sleep(5)
-ot_router_2.send_command(join_cmd)
-
-while True:
-    time.sleep(30)
-    node_state = ot_router_2.send_command("sudo wpanctl get NCP:State")
-    node_type = ot_router_2.send_command("sudo wpanctl get Network:NodeType")
-    if "associated" in node_state.lower() and "router" in node_type.lower():
-        ot_logger.info("Router 2 successfully joined the network")
-        response = ot_router_2.send_command(
-            "sudo wpanctl get IPv6:MeshLocalAddress"
-        )
-        router_2_ipv6 = response.split(" ")[-1][1:-1]
-        ot_logger.info(f"Router 2 Mesh Local IPv6 address: {router_2_ipv6}")
-        break
-    else:
-        ot_logger.info(f"Current Router 2 Node State: {node_state}")
-        ot_logger.info(f"Current Router 2 Node Type: {node_type}")
-        ot_logger.info("Waiting for 30 seconds...")
-
-ot_leader.send_command("sudo wpanctl permit-join --network-wide")
-time.sleep(5)
-ot_router_3.send_command(join_cmd)
-
-while True:
-    time.sleep(30)
-    node_state = ot_router_3.send_command("sudo wpanctl get NCP:State")
-    node_type = ot_router_3.send_command("sudo wpanctl get Network:NodeType")
-    if "associated" in node_state.lower() and "router" in node_type.lower():
-        ot_logger.info("Router 3 successfully joined the network")
-        response = ot_router_3.send_command(
-            "sudo wpanctl get IPv6:MeshLocalAddress"
-        )
-        router_3_ipv6 = response.split(" ")[-1][1:-1]
-        ot_logger.info(f"Router 3 Mesh Local IPv6 address: {router_3_ipv6}")
-        break
-    else:
-        ot_logger.info(f"Current Router 3 Node State: {node_state}")
-        ot_logger.info(f"Current Router 3 Node Type: {node_type}")
-        ot_logger.info("Waiting for 30 seconds...")
+    while True:
+        time.sleep(30)
+        node_state = router.send_command("sudo wpanctl get NCP:State")
+        node_state = node_state.split(" ")[-1][1:-1]
+        node_type = router.send_command("sudo wpanctl get Network:NodeType")
+        node_type = node_type.split(" ")[-1][1:-1]
+        if "associated" in node_state.lower() and "router" in node_type.lower():
+            ot_logger.info(
+                f"Router {router_name} successfully joined the network"
+            )
+            response = router.send_command(
+                "sudo wpanctl get IPv6:MeshLocalAddress"
+            )
+            router_ipv6[router_name] = response.split(" ")[-1][1:-1]
+            ot_logger.info(
+                f"Router {router_name} mesh local IPv6 address: "
+                f"{router_ipv6[router_name]}"
+            )
+            break
+        else:
+            ot_logger.info(f"Current {router_name} node state: {node_state}")
+            ot_logger.info(f"Current {router_name} node type: {node_type}")
+            ot_logger.info("Waiting for 30 seconds...")
 
 # ! This series of commands makes sure the linear mesh topology is established.
 # ! Useful when running tests in free space in the lab, but also helps at
@@ -361,34 +319,19 @@ ot_logger.info("Set up MAC Allowlists on all nodes")
 # ! then wait 3 minutes for the changes to take effect and for the topology to
 # ! stabilise. Finally, we record the packet counters and the neighbour
 # ! tables, as a reference point before we start the actual experiments.
-ot_leader.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
-ot_router_1.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
-ot_router_2.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
-ot_router_3.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
-
+for node in all_nodes:
+    node.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
 ot_logger.info("MAC filtering enabled, waiting for 180 seconds...")
 time.sleep(180)
 
-ot_logger.info("Leader packet counters, neighbour table, and error rates")
-log_ot_counters(ot_logger, ot_leader)
-log_ot_neighbour_table(ot_logger, ot_leader)
-
-ot_logger.info("Router 1 packet counters, neighbour table, and error rates")
-log_ot_counters(ot_logger, ot_router_1)
-log_ot_neighbour_table(ot_logger, ot_router_1)
-
-ot_logger.info("Router 2 packet counters, neighbour table, and error rates")
-log_ot_counters(ot_logger, ot_router_2)
-log_ot_neighbour_table(ot_logger, ot_router_2)
-
-ot_logger.info("Router 3 packet counters, neighbour table, and error rates")
-log_ot_counters(ot_logger, ot_router_3)
-log_ot_neighbour_table(ot_logger, ot_router_3)
-
+for node in all_nodes:
+    node_name = node.host.split(".")[0]
+    ot_logger.info(
+        f"Node {node_name} packet counters, neighbour table, and error rates"
+    )
+    log_ot_counters(ot_logger, node)
+    log_ot_neighbour_table(ot_logger, node)
 ot_logger.info("OpenThread linear mesh network setup complete")
-
-# * Common variables for all tests
-routers = [ot_router_1, ot_router_2, ot_router_3]
 
 # * Ping tests
 ping_packet_sizes = [16, 32, 64, 128, 256, 512, 1024]
@@ -405,12 +348,16 @@ for router in routers:
             f"|& tee -a {result_filename}"
         )
 
-        ot_logger.info(f"Pinging from {router_name} with {pkt_size} payload")
+        ot_logger.info(f"Pinging from {router_name} with {pkt_size} b payload")
 
-        response = router.send_command(ping_cmd)
+        response = router.send_command(
+            ping_cmd, expect_string="rtt min/avg/max/mdev",
+            delay_factor=4
+        )
 
         with open(result_filename, "a") as fout:
             fout.write(response)
+            fout.write("\n")
 
         ot_logger.info(
             "Leader packet counters, neighbour table, and error rates"
@@ -462,6 +409,7 @@ for router in routers:
 
         with open(result_filename, "a") as fout:
             fout.write(response)
+            fout.write("\n")
 
         ot_logger.info(
             "Leader packet counters, neighbour table, and error rates"
@@ -517,26 +465,17 @@ for router in routers:
 
 ot_logger.info("Finished UDP throughput tests")
 
-ot_logger.info("Leader packet counters, neighbour table, and error rates")
-log_ot_counters(ot_logger, ot_leader)
-log_ot_neighbour_table(ot_logger, ot_leader)
+for node in all_nodes:
+    node_name = node.host.split(".")[0]
+    ot_logger.info(
+        f"Node {node_name} packet counters, neighbour table, and error rates"
+    )
+    log_ot_counters(ot_logger, node)
+    log_ot_neighbour_table(ot_logger, node)
 
-ot_logger.info("Router 1 packet counters, neighbour table, and error rates")
-log_ot_counters(ot_logger, ot_router_1)
-log_ot_neighbour_table(ot_logger, ot_router_1)
+for node in all_nodes:
+    node.disconnect()
 
-ot_logger.info("Router 2 packet counters, neighbour table, and error rates")
-log_ot_counters(ot_logger, ot_router_2)
-log_ot_neighbour_table(ot_logger, ot_router_2)
-
-ot_logger.info("Router 3 packet counters, neighbour table, and error rates")
-log_ot_counters(ot_logger, ot_router_3)
-log_ot_neighbour_table(ot_logger, ot_router_3)
-
-ot_leader.disconnect()
-ot_router_1.disconnect()
-ot_router_2.disconnect()
-ot_router_3.disconnect()
 ot_logger.info("Disconnected from all Raspberry Pis")
 
 logging.shutdown()
