@@ -350,10 +350,7 @@ for router in routers:
 
         ot_logger.info(f"Pinging from {router_name} with {pkt_size} b payload")
 
-        response = router.send_command(
-            ping_cmd, expect_string="rtt min/avg/max/mdev",
-            delay_factor=4
-        )
+        response = router.send_command(ping_cmd, delay_factor=4)
 
         with open(result_filename, "a") as fout:
             fout.write(response)
@@ -405,7 +402,7 @@ for router in routers:
             f"Transmitting from {router_name} at {bw} bps with {pkt_size} bytes"
         )
 
-        response = router.send_command(iperf3_cmd)
+        response = router.send_command(iperf3_cmd, delay_factor=4)
 
         with open(result_filename, "a") as fout:
             fout.write(response)
@@ -444,7 +441,7 @@ for router in routers:
             f"Transmitting from {router_name} at {bw} bps with {pkt_size} bytes"
         )
 
-        response = router.send_command(iperf3_cmd)
+        response = router.send_command(iperf3_cmd, delay_factor=4)
 
         with open(result_filename, "a") as fout:
             fout.write(response)
