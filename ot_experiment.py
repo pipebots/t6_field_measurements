@@ -19,6 +19,7 @@ import time
 import datetime
 import logging
 
+import yaml
 import netmiko
 
 import helpers

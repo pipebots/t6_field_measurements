@@ -1,0 +1,13 @@
+leader:
+  - router_1
+
+router_1:
+  - leader
+  - router_2
+
+router_2:
+  - router_1
+  - router_3
+
+router_3:
+  - router_2
