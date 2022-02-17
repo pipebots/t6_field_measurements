@@ -10,20 +10,18 @@ This script sets up a very particular topology, which is the one used for
 taking measurements at ICAIR, i.e. a linear mesh. A lot of diagnostic info
 is recorded at certain stages.
 
-Once the mesh topology has been established, we remotely run `ping` and `iperf3`
-test, to measure latency and throughput, respectively.
+Once the mesh topology has been established, we remotely run `ping` and
+`iperf3` test, to measure latency and throughput, respectively.
 """
 
-from itertools import product
-import time
 import datetime
 import logging
+import time
+from itertools import product
 
-import yaml
 import netmiko
 
 import helpers
-
 
 NTP_SERVER = "0.uk.pool.ntp.org"
 
@@ -242,8 +240,8 @@ join_cmd = (
     f"-c {ntwk_channel}"
 )
 
-# * We will hold the individual node's IPv6 addresses in a dict just in case, to
-# * avoid any potential issues with mismatches between node names and IPv6
+# * We will hold the individual node's IPv6 addresses in a dict just in case,
+# * to avoid any potential issues with mismatches between node names and IPv6
 router_ipv6 = dict()
 
 for router in routers:

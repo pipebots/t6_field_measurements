@@ -1,15 +1,17 @@
 import datetime
 import logging
 import time
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, TypeVar
 
 import netmiko
-from typing_extensions import Self
+
+Self = TypeVar("Self", bound="RemoteOTNode")
 
 
 class RemoteOTNode:
     def __init__(self, netmiko_args: Dict,
                  logger: logging.Logger = None) -> None:
+        self._hostname = netmiko_args['host'].split('.')[0]
         self.logger = logger if logger is not None else self.__get_logger()
 
         try:
@@ -24,11 +26,13 @@ class RemoteOTNode:
             self.logger.error("Timed out while trying to connect")
             raise RuntimeError from error
         else:
-            self._hostname = self._conn.host.split('.')[0]
-            self.logger.info(f"Successfully connected to {self.hostname}")
+            self.logger.info(f"Successfully connected to {self._hostname}")
 
+        self.__joined = False
+        self.__initialised = False
         self.reset()
-        self.logger.info(f"Successfully initialised {self.hostname}")
+        self.logger.info(f"Successfully initialised {self._hostname}")
+        self.__initialised = True
 
         self._ipv6: Optional[str] = None
         self._exthwaddr: Optional[str] = None
@@ -40,8 +44,6 @@ class RemoteOTNode:
         self._ntwk_freq: Optional[int] = None
         self._ntwk_key: Optional[str] = None
 
-        self.__joined = False
-
     @property
     def ipv6_addr(self) -> str:
         if not self.__joined:
@@ -50,7 +52,7 @@ class RemoteOTNode:
             response = self._conn.send_command(
                 "sudo wpanctl get IPv6:MeshLocalAddress"
             )
-            self._ipv6 = response.split(" ")[1][1:-1]
+            self._ipv6 = response.split(" ")[-1][1:-1]
 
         return self._ipv6
 
@@ -62,7 +64,7 @@ class RemoteOTNode:
             response = self._conn.send_command(
                 "sudo wpanctl get NCP:ExtendedAddress"
             )
-            self._exthwaddr = response.split(" ")[1][1:-1]
+            self._exthwaddr = response.split(" ")[-1][1:-1]
 
         return self._exthwaddr
 
@@ -78,8 +80,10 @@ class RemoteOTNode:
         if not self.__joined:
             raise RuntimeError("Node is not part of an OT network")
         if self._ntwk_panid is None:
-            response = self._conn.send_command("sudo wpanctl get Network:PANID")
-            self._ntwk_panid = response.split(" ")[1]
+            response = self._conn.send_command(
+                "sudo wpanctl get Network:PANID"
+            )
+            self._ntwk_panid = response.split(" ")[-1]
 
         return self._ntwk_panid
 
@@ -88,8 +92,10 @@ class RemoteOTNode:
         if not self.__joined:
             raise RuntimeError("Node is not part of an OT network")
         if self._ntwk_xpanid is None:
-            response = self._conn.send_command("sudo wpanctl get Network:XPANID")
-            self._ntwk_xpanid = response.split(" ")[1]
+            response = self._conn.send_command(
+                "sudo wpanctl get Network:XPANID"
+            )
+            self._ntwk_xpanid = response.split(" ")[-1]
 
         return self._ntwk_xpanid
 
@@ -99,7 +105,7 @@ class RemoteOTNode:
             raise RuntimeError("Node is not part of an OT network")
         if self._ntwk_channel is None:
             response = self._conn.send_command("sudo wpanctl get NCP:Channel")
-            self._ntwk_channel = int(response.split(" ")[1])
+            self._ntwk_channel = int(response.split(" ")[-1])
 
         return self._ntwk_channel
 
@@ -108,8 +114,10 @@ class RemoteOTNode:
         if not self.__joined:
             raise RuntimeError("Node is not part of an OT network")
         if self._ntwk_freq is None:
-            response = self._conn.send_command("sudo wpanctl get NCP:Frequency")
-            self._ntwk_freq = int(response.split(" ")[1])
+            response = self._conn.send_command(
+                "sudo wpanctl get NCP:Frequency"
+            )
+            self._ntwk_freq = int(response.split(" ")[-1])
 
         return self._ntwk_freq
 
@@ -119,7 +127,7 @@ class RemoteOTNode:
             raise RuntimeError("Node is not part of an OT network")
         if self._ntwk_key is None:
             response = self._conn.send_command("sudo wpanctl get Network:Key")
-            self._ntwk_key = response.split(" ")[1][1:-1]
+            self._ntwk_key = response.split(" ")[-1][1:-1]
 
         return self._ntwk_key
 
@@ -156,13 +164,13 @@ class RemoteOTNode:
 
     @property
     def mac_allowlist(self):
-        pass
+        print("Not yet implemented")
 
     @property
     def mac_denylist(self):
-        pass
+        print("Not yet implemented")
 
-    def form_network(self, network_name) -> None:
+    def form_network(self, network_name: str) -> None:
         if self.__joined:
             raise RuntimeWarning("Node is already part of a network")
 
@@ -188,8 +196,12 @@ class RemoteOTNode:
             f"sudo wpanctl set Network:Key {leader.network_key}"
         )
         self._conn.send_command(join_cmd)
+
         time.sleep(5)
-        if "associated" in self.node_state.lower():
+
+        response = self._conn.send_command("sudo wpanctl get NCP:State")
+
+        if "associated" in response.lower():
             self.logger.info(
                 f"{self._hostname} Successfully joined {leader.network_name}"
             )
@@ -197,7 +209,6 @@ class RemoteOTNode:
             self._ntwk_name = leader.network_name
         else:
             self.logger.error("Could not join network")
-
 
     def add_maclist_entry(self, peer: Self):
         if not self.__joined or not peer.__joined:
@@ -219,38 +230,52 @@ class RemoteOTNode:
         self.logger.info(f"Disabled MAC Allowlist on {self._hostname}")
 
     def reset(self) -> None:
-        self._conn.send_command("sudo wpantund &")
+        if not self.__initialised:
+            self._conn.send_command("sudo wpantund &")
         self._conn.send_command("sudo wpanctl leave")
         self._conn.send_command("sudo wpanctl reset")
         self._conn.clear_buffer()
+        self.__joined = False
+
+    def disconnect(self) -> None:
+        self._conn.send_command("sudo wpanctl leave")
+        self._conn.send_command("sudo wpanctl reset")
+        self._conn.disconnect()
+        self.__joined = False
 
     def log_counters(self) -> None:
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+
         response = self._conn.send_command(
             "sudo wpanctl get NCP:Counter:AllIPv6"
         )
-        self.logger.info(f"{self.hostname} IPv6 Packet Counters")
+        self.logger.info(f"{self._hostname} IPv6 Packet Counters")
         for line in response.split("\n"):
             self.logger.info(line)
 
         response = self._conn.send_command(
             "sudo wpanctl get NCP:Counter:AllMac"
         )
-        self.logger.info(f"{self.hostname} 802.15.4 MAC Packet Counters")
+        self.logger.info(f"{self._hostname} 802.15.4 MAC Packet Counters")
         for line in response.split("\n"):
             self.logger.info(line)
 
     def log_neighbor_table(self) -> None:
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+
         response = self._conn.send_command(
             "sudo wpanctl get Thread:NeighborTable"
         )
-        self.logger.info(f"{self.hostname} Neighbour Details")
+        self.logger.info(f"{self._hostname} Neighbour Details")
         for line in response.split("\n"):
             self.logger.info(line)
 
         response = self._conn.send_command(
             "sudo wpanctl get Thread:NeighborTable:ErrorRates"
         )
-        self.logger.info(f"{self.hostname} Neighbour Links Error Rates")
+        self.logger.info(f"{self._hostname} Neighbour Links Error Rates")
         for line in response.split("\n"):
             self.logger.info(line)
 
@@ -271,10 +296,10 @@ class RemoteOTNode:
             Nothing
         """
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_filename = "_".join([self.hostname, timestamp])
+        log_filename = "_".join([self._hostname, timestamp])
         log_filename = ".".join([log_filename, "log"])
 
-        logger = logging.getLogger(self.nhostname)
+        logger = logging.getLogger(self._hostname)
 
         logger_handler = logging.FileHandler(log_filename)
         logger_handler.setLevel(logging.INFO)
@@ -301,4 +326,3 @@ class RemoteOTNode:
         logger.info("Logger configuration done")
 
         return logger
-

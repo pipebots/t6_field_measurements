@@ -6,9 +6,9 @@ the future could contain other stuff as well, and could perhaps be moved to
 a separate package.
 """
 
-import time
 import datetime
 import logging
+import time
 
 import ntplib
 
