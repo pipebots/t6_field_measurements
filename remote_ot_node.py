@@ -1,11 +1,10 @@
-from ctypes import Union
 import datetime
 import logging
 import time
-from typing import Dict, Optional
-from typing_extensions import Self
+from typing import Dict, Optional, Union
 
 import netmiko
+from typing_extensions import Self
 
 
 class RemoteOTNode:
@@ -30,66 +29,130 @@ class RemoteOTNode:
 
         self.reset()
         self.logger.info(f"Successfully initialised {self.hostname}")
-        self.__connected = True
 
         self._ipv6: Optional[str] = None
         self._exthwaddr: Optional[str] = None
 
+        self._ntwk_name: Optional[str] = None
         self._ntwk_panid: Optional[str] = None
         self._ntwk_xpanid: Optional[str] = None
         self._ntwk_channel: Optional[int] = None
-        self._ntwk_freq: Optional[str] = None
+        self._ntwk_freq: Optional[int] = None
         self._ntwk_key: Optional[str] = None
-
-        self._ncp_txpower: Union[int, float] = 0
-        self._ncp_state: Optional[int] = None
-        self._ntwk_nodetype: Optional[str] = None
 
         self.__joined = False
 
     @property
     def ipv6_addr(self) -> str:
-        pass
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+        if self._ipv6 is None:
+            response = self._conn.send_command(
+                "sudo wpanctl get IPv6:MeshLocalAddress"
+            )
+            self._ipv6 = response.split(" ")[1][1:-1]
+
+        return self._ipv6
 
     @property
     def ext_hw_addr(self) -> str:
-        pass
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+        if self._exthwaddr is None:
+            response = self._conn.send_command(
+                "sudo wpanctl get NCP:ExtendedAddress"
+            )
+            self._exthwaddr = response.split(" ")[1][1:-1]
+
+        return self._exthwaddr
+
+    @property
+    def network_name(self) -> str:
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+
+        return self._ntwk_name
 
     @property
     def panid(self) -> str:
-        pass
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+        if self._ntwk_panid is None:
+            response = self._conn.send_command("sudo wpanctl get Network:PANID")
+            self._ntwk_panid = response.split(" ")[1]
+
+        return self._ntwk_panid
 
     @property
     def xpanid(self) -> str:
-        pass
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+        if self._ntwk_xpanid is None:
+            response = self._conn.send_command("sudo wpanctl get Network:XPANID")
+            self._ntwk_xpanid = response.split(" ")[1]
+
+        return self._ntwk_xpanid
 
     @property
     def channel(self) -> int:
-        pass
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+        if self._ntwk_channel is None:
+            response = self._conn.send_command("sudo wpanctl get NCP:Channel")
+            self._ntwk_channel = int(response.split(" ")[1])
+
+        return self._ntwk_channel
 
     @property
     def frequency(self) -> int:
-        pass
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+        if self._ntwk_freq is None:
+            response = self._conn.send_command("sudo wpanctl get NCP:Frequency")
+            self._ntwk_freq = int(response.split(" ")[1])
+
+        return self._ntwk_freq
 
     @property
     def network_key(self) -> str:
-        pass
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+        if self._ntwk_key is None:
+            response = self._conn.send_command("sudo wpanctl get Network:Key")
+            self._ntwk_key = response.split(" ")[1][1:-1]
+
+        return self._ntwk_key
 
     @property
-    def txpower(self) -> Union[int, float]:
-        pass
+    def txpower(self) -> float:
+        response = self._conn.send_command("sudo wpanctl get NCP:TXPower")
+        response = response.split(" ")[-1]
+
+        return float(response)
 
     @txpower.setter
     def txpower(self, new_power: Union[int, float]) -> None:
-        pass
+        if new_power < -20 or new_power > 8:
+            self.logger.warning(
+                f"{new_power} is outside device limits, will be coerced"
+            )
+            new_power = max(-20, min(new_power, 8))
+        self._conn.send_command(f"sudo wpanctl set NCP:TXPower {new_power}")
+        self.logger.info(f"Set NCP TX power to {new_power}")
 
     @property
     def node_state(self) -> str:
-        pass
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+        response = self._conn.send_command("sudo wpanctl get NCP:State")
+        return response.split(" ")[-1][1:-1]
 
     @property
     def node_type(self) -> str:
-        pass
+        if not self.__joined:
+            raise RuntimeError("Node is not part of an OT network")
+        response = self._conn.send_command("sudo wpanctl get Network:NodeType")
+        return response.split(" ")[-1][1:-1]
 
     @property
     def mac_allowlist(self):
@@ -99,20 +162,61 @@ class RemoteOTNode:
     def mac_denylist(self):
         pass
 
-    def form_network(self, network_name):
-        pass
+    def form_network(self, network_name) -> None:
+        if self.__joined:
+            raise RuntimeWarning("Node is already part of a network")
+
+        response = self._conn.send_command(f"sudo wpanctl form {network_name}")
+        if "success" in response.lower():
+            self.logger.info(f"Successfully formed {network_name}")
+            self._ntwk_name = network_name
+            self.__joined = True
+        else:
+            self.logger.critical("Could not form network")
 
     def join_network(self, leader: Self):
-        pass
+        if not leader.__joined:
+            raise RuntimeError("Leader is not part of an OT network")
+
+        leader._conn.send_command("sudo wpanctl permit-join --network-wide")
+        time.sleep(5)
+        join_cmd = (
+            f"sudo wpanctl join {leader.network_name} -T 2 -p {leader.panid} "
+            f"-x {leader.xpanid} -c {leader.channel}"
+        )
+        self._conn.send_command(
+            f"sudo wpanctl set Network:Key {leader.network_key}"
+        )
+        self._conn.send_command(join_cmd)
+        time.sleep(5)
+        if "associated" in self.node_state.lower():
+            self.logger.info(
+                f"{self._hostname} Successfully joined {leader.network_name}"
+            )
+            self.__joined = True
+            self._ntwk_name = leader.network_name
+        else:
+            self.logger.error("Could not join network")
+
 
     def add_maclist_entry(self, peer: Self):
-        pass
+        if not self.__joined or not peer.__joined:
+            raise RuntimeError("Nodes are not part of an OT network")
+        self._conn.send_command(
+            f"sudo wpanctl add MAC:Allowlist:Entries {peer.ext_hw_addr}"
+        )
+        self.logger.info(
+            f"Added {peer._hostname} [{peer.ext_hw_addr}] to "
+            f"{self._hostname} MAC Allowlist"
+        )
 
     def enable_maclist(self):
-        pass
+        self._conn.send_command("sudo wpanctl set MAC:Allowlist:Enabled true")
+        self.logger.info(f"Enabled MAC Allowlist on {self._hostname}")
 
     def disable_maclist(self):
-        pass
+        self._conn.send_command("sudo wpanctl set MAC:Allowlist:Enabled false")
+        self.logger.info(f"Disabled MAC Allowlist on {self._hostname}")
 
     def reset(self) -> None:
         self._conn.send_command("sudo wpantund &")
