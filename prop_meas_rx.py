@@ -68,7 +68,7 @@ def pluto_cw_tone_rx(params: Dict, logger: logging.Logger) -> None:
     # ! Turning off the Tx LO on the receiver helps with noise and
     # ! self-interference performance.
     ad9361_phy = pluto._ctrl
-    tx_lo = ad9361_phy.find_channel("TX_LO")
+    tx_lo = ad9361_phy.find_channel("TX_LO", is_output=True)  # pyadi v0.0.11
     tx_lo.attrs["powerdown"].value = str(int(1))
     logger.info("Tx LO powered down on Rx side")
 
@@ -132,6 +132,15 @@ def pluto_cw_tone_rx(params: Dict, logger: logging.Logger) -> None:
                 samples_hdf5 = np.column_stack((samples_real, samples_imag))
 
                 dset_name = f"measurement_{idx+1}"
+
+                # * Append `new` to the dataset name if it already exists in
+                # * the HDF5 file.
+                if dset_name in meas_file[group_name]:
+                    logger.warning(
+                        f"Dataset {dset_name} already exists in {group_name}! "
+                        f"Saving under {dset_name}_new"
+                    )
+                    dset_name = "_".join([dset_name, "new"])                
 
                 meas_file[group_name].create_dataset(
                     dset_name, np.shape(samples_hdf5), dtype="i2",
@@ -207,8 +216,8 @@ def cli_args() -> argparse.Namespace:
 
     parser.add_argument(
         "-t",
-        "--hint",
-        metavar="MEASUREMENT HINT",
+        "--subset",
+        metavar="MEASUREMENT SUBSET",
         type=str,
         action="store",
         dest="MEAS_HINT",

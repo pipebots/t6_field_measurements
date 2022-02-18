@@ -69,7 +69,7 @@ def pluto_cw_tone_dds(params: Dict, logger: logging.Logger) -> None:
     pluto.dds_single_tone(
         int(params["DDS_FREQ_KHZ"] * 1e3), params["DDS_SCALE"]
     )
-    logger.info(f"DDS frequency set to {params['DDS_FREQ_HZ']} kHz")
+    logger.info(f"DDS frequency set to {params['DDS_FREQ_KHZ']} kHz")
     logger.info(f"DDS scale set to {params['DDS_SCALE']}")
 
     logger.info(
