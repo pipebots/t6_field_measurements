@@ -1,7 +1,7 @@
 import datetime
 import logging
 import time
-from typing import Dict, Optional, Union, TypeVar
+from typing import Dict, Optional, TypeVar, Union
 
 import netmiko
 
