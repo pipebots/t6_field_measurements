@@ -10,6 +10,7 @@ Self = TypeVar("Self", bound="RemoteOTNode")
 
 class RemoteOTNode:
     def __init__(self, netmiko_args: Dict,
+                 previously_joined: bool = False,
                  logger: logging.Logger = None) -> None:
         self._hostname = netmiko_args['host'].split('.')[0]
         self.logger = logger if logger is not None else self.__get_logger()
@@ -28,7 +29,7 @@ class RemoteOTNode:
         else:
             self.logger.info(f"Successfully connected to {self._hostname}")
 
-        self.__joined = False
+        self.__joined = previously_joined
         self.__initialised = False
         self.reset()
         self.logger.info(f"Successfully initialised {self._hostname}")

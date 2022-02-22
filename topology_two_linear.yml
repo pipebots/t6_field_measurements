@@ -1,0 +1,5 @@
+leader:
+  - router_1
+
+router_1:
+  - leader

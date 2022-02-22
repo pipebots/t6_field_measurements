@@ -8,8 +8,8 @@ import yaml
 import helpers
 from remote_ot_node import RemoteOTNode
 
-nodes_file = "nodes.yml"
-topology_file = "topology.yml"
+nodes_file = "nodes_two.yml"
+topology_file = "topology_two_linear.yml"
 
 global_timestamp = datetime.datetime.now()
 day_timestamp = global_timestamp.strftime('%d%m%y')
@@ -27,10 +27,10 @@ with open(nodes_file, "r") as fin:
 with open(topology_file, "r") as fin:
     topology = yaml.safe_load(fin)
 
-leader_node = RemoteOTNode(all_nodes["leader"])
+leader_node = RemoteOTNode(all_nodes["leader"], previously_joined=True)
 
 router_nodes = {
-    router: RemoteOTNode(all_nodes["routers"][router])
+    router: RemoteOTNode(all_nodes["routers"][router], previously_joined=True)
     for router in all_nodes["routers"]
 }
 
@@ -68,3 +68,181 @@ for node in router_nodes:
             time.sleep(30)
 
 ot_logger.info("OpenThread Network set up and all nodes joined")
+
+for node in topology["leader"]:
+    leader_node.add_maclist_entry(router_nodes[node])
+
+for router in router_nodes:
+    for node in topology[router]:
+        if "leader" in node:
+            router_nodes[router].add_maclist_entry(leader_node)
+        else:
+            router_nodes[router].add_maclist_entry(router_nodes[node])
+
+leader_node.enable_maclist()
+
+for router in router_nodes:
+    router_nodes[router].enable_maclist()
+
+ot_logger.info("MAC Allowlists set up and enabled")
+
+time.sleep(180)
+
+leader_node.logger.info("After forming OT Network")
+leader_node.log_counters()
+leader_node.log_neighbor_table()
+
+for router in router_nodes:
+    router_nodes[router].logger.info("After forming OT Network")
+    router_nodes[router].log_counters()
+    router_nodes[router].log_neighbor_table()
+
+# * Ping tests
+# ping_packet_sizes = [16, 32, 64, 128, 256, 512, 1024]
+# ping_count = 100
+
+# ot_logger.info("Running latency measurements using ping")
+
+# for router in router_nodes:
+#     router_name = router_nodes[router]._hostname
+#     result_filename = f"ping_{router_name}_{day_timestamp}.log"
+
+#     for pkt_size in ping_packet_sizes:
+#         ping_cmd = (
+#             f"ping -6 -I wpan0 -c {ping_count} -s {pkt_size} "
+#             f"{leader_node.ipv6_addr} |& tee -a {result_filename}"
+#         )
+
+#         ot_logger.info(f"Pinging from {router_name} with {pkt_size} b payload")
+
+#         response = router_nodes[router]._conn.send_command(
+#             ping_cmd, delay_factor=4
+#         )
+
+#         with open(result_filename, "a") as fout:
+#             fout.write(response)
+#             fout.write("\n")
+
+#         leader_node.logger.info(
+#             f"After receiving {pkt_size} pings from {router_name}"
+#         )
+#         leader_node.log_counters()
+#         leader_node.log_neighbor_table()
+
+#         router_nodes[router].logger.info(
+#             f"After pinging with {pkt_size} payload"
+#         )
+#         router_nodes[router].log_counters()
+#         router_nodes[router].log_neighbor_table()
+
+#         time.sleep(5)
+
+# ot_logger.info("Finished latency tests")
+
+# * Common for iperf3 tests
+iperf3_port = 2607
+iperf3_time = 60
+iperf3_packet_sizes = [32, 160, 288, 416, 544, 672, 800, 928]
+iperf3_bandwidths = [150000, 200000, 250000]
+
+iperf3_server_log = f"iperf3_server_{day_timestamp}.log"
+leader_node._conn.send_command(
+    f"sudo iperf3 --server --daemon --verbose --port {iperf3_port} "
+    f"--logfile {iperf3_server_log}"
+)
+ot_logger.info("iperf3 server started on OpenThread leader node")
+
+ot_logger.info("Running throughput tests using TCP")
+
+for router in router_nodes:
+    router_name = router_nodes[router]._hostname
+    result_filename = f"iperf3_{router_name}_{day_timestamp}.log"
+
+    for pkt_size, bw in product(iperf3_packet_sizes, iperf3_bandwidths):
+        iperf3_cmd = (
+            f"sudo iperf3 --client {leader_node.ipv6_addr} --verbose "
+            f"--format k --port {iperf3_port} --bandwidth {bw} "
+            f"--length {pkt_size} --time {iperf3_time} "
+            f"|& tee -a {result_filename}"
+        )
+
+        ot_logger.info(
+            f"Transmitting from {router_name} at {bw} bps with {pkt_size} bytes"
+        )
+
+        response = router_nodes[router]._conn.send_command(
+            iperf3_cmd, delay_factor=4
+        )
+
+        with open(result_filename, "a") as fout:
+            fout.write(response)
+            fout.write("\n")
+
+        leader_node.logger.info(
+            f"After TCP with {pkt_size} at {bw} bps from {router_name}"
+        )
+        leader_node.log_counters()
+        leader_node.log_neighbor_table()
+
+        router_nodes[router].logger.info(
+            f"After TCP with {pkt_size} at {bw} bps"
+        )
+        router_nodes[router].log_counters()
+        router_nodes[router].log_neighbor_table()
+
+        time.sleep(5)
+
+ot_logger.info("Finished TCP throughput tests")
+
+# * UDP tests
+ot_logger.info("Running throughput tests using UDP")
+
+for router in router_nodes:
+    router_name = router_nodes[router]._hostname
+    result_filename = f"iperf3_{router_name}_{day_timestamp}.log"
+
+    for pkt_size, bw in product(iperf3_packet_sizes, iperf3_bandwidths):
+        iperf3_cmd = (
+            f"sudo iperf3 --client {leader_node.ipv6_addr} --verbose "
+            f"--format k --port {iperf3_port} --bandwidth {bw} "
+            f"--length {pkt_size} --time {iperf3_time} "
+            f"--udp "
+            f"|& tee -a {result_filename}"
+        )
+
+        ot_logger.info(
+            f"Transmitting from {router_name} at {bw} bps with {pkt_size} bytes"
+        )
+
+        response = router_nodes[router]._conn.send_command(
+            iperf3_cmd, delay_factor=4
+        )
+
+        with open(result_filename, "a") as fout:
+            fout.write(response)
+            fout.write("\n")
+
+        leader_node.logger.info(
+            f"After TCP with {pkt_size} at {bw} bps from {router_name}"
+        )
+        leader_node.log_counters()
+        leader_node.log_neighbor_table()
+
+        router_nodes[router].logger.info(
+            f"After TCP with {pkt_size} at {bw} bps"
+        )
+        router_nodes[router].log_counters()
+        router_nodes[router].log_neighbor_table()
+
+        time.sleep(5)
+
+ot_logger.info("Finished UDP throughput tests")
+
+leader_node.disconnect()
+
+for router in router_nodes:
+    router_nodes[router].disconnect()
+
+ot_logger.info("Disconnected from all Raspberry Pis")
+
+logging.shutdown()
