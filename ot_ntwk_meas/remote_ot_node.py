@@ -38,7 +38,7 @@ class RemoteOTNode:
         self._ipv6: Optional[str] = None
         self._exthwaddr: Optional[str] = None
 
-        self._ntwk_name: Optional[str] = None
+        self._ntwk_name: str = "None"
         self._ntwk_panid: Optional[str] = None
         self._ntwk_xpanid: Optional[str] = None
         self._ntwk_channel: Optional[int] = None

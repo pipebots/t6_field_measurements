@@ -256,7 +256,8 @@ for router in routers:
         node_state = node_state.split(" ")[-1][1:-1]
         node_type = router.send_command("sudo wpanctl get Network:NodeType")
         node_type = node_type.split(" ")[-1][1:-1]
-        if "associated" in node_state.lower() and "router" in node_type.lower():
+        if "associated" in node_state.lower() and \
+           "router" in node_type.lower():
             ot_logger.info(
                 f"Router {router_name} successfully joined the network"
             )
@@ -398,7 +399,8 @@ for router in routers:
         )
 
         ot_logger.info(
-            f"Transmitting from {router_name} at {bw} bps with {pkt_size} bytes"
+            f"Transmitting from {router_name} at {bw} bps with "
+            f"{pkt_size} bytes"
         )
 
         response = router.send_command(iperf3_cmd, delay_factor=4)
@@ -437,7 +439,8 @@ for router in routers:
         )
 
         ot_logger.info(
-            f"Transmitting from {router_name} at {bw} bps with {pkt_size} bytes"
+            f"Transmitting from {router_name} at {bw} bps with "
+            f"{pkt_size} bytes"
         )
 
         response = router.send_command(iperf3_cmd, delay_factor=4)
