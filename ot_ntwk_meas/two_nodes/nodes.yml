@@ -1,12 +1,12 @@
 leader:
   device_type: linux
-  host: plutopi2.local
+  host: plutopi1.local
   username: pi
-  password: cherriesandberries2020
+  password: orangeandmango2020
 
 routers:
   router_1:
     device_type: linux
-    host: plutopi4.local
+    host: plutopi3.local
     username: pi
-    password: summerfruits2020
+    password: appleandblackcurrant2020

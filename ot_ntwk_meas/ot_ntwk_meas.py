@@ -12,6 +12,7 @@ EXPERIMENT = "two_nodes"
 PING_TESTS = True
 TCP_TESTS = True
 UDP_TESTS = True
+TX_POWER = 8
 
 repeated_experiment = False
 
@@ -56,9 +57,9 @@ leader_node.logger.info(f"OpenThread Network XPAN: {leader_node.xpanid}")
 leader_node.logger.info(f"OpenThread Network Chan: {leader_node.channel}")
 leader_node.logger.info(f"OpenThread Network Freq: {leader_node.frequency}")
 
-leader_node.txpower = 8
+leader_node.txpower = TX_POWER
 for node in router_nodes:
-    router_nodes[node].txpower = 8
+    router_nodes[node].txpower = TX_POWER
 
 ot_logger.info("Set max TX power on all nodes")
 
