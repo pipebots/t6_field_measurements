@@ -8,11 +8,12 @@ import yaml
 import helpers
 from remote_ot_node import RemoteOTNode
 
-EXPERIMENT = "two_nodes"
-PING_TESTS = True
-TCP_TESTS = True
-UDP_TESTS = True
+EXPERIMENT = "four_nodes_linear"
+PING_TESTS = False
+TCP_TESTS = False
+UDP_TESTS = False
 TX_POWER = 8
+SHUTDOWN = False
 
 repeated_experiment = False
 
@@ -155,17 +156,18 @@ if PING_TESTS:
     ot_logger.info("Finished latency tests")
 
 # * Common for iperf3 tests
-iperf3_port = 2607
-iperf3_time = 60
-iperf3_packet_sizes = [32, 160, 288, 416, 544, 672, 800, 928]
-iperf3_bandwidths = [20000, 70000, 100000]
+if TCP_TESTS or UDP_TESTS:
+    iperf3_port = 2607
+    iperf3_time = 60
+    iperf3_packet_sizes = [32, 160, 288, 416, 544, 672, 800, 928]
+    iperf3_bandwidths = [20000, 70000, 100000]
 
-iperf3_server_log = f"iperf3_server_{day_timestamp}.log"
-leader_node._conn.send_command(
-    f"sudo iperf3 --server --daemon --verbose --port {iperf3_port} "
-    f"--logfile {iperf3_server_log}"
-)
-ot_logger.info("iperf3 server started on OpenThread leader node")
+    iperf3_server_log = f"iperf3_server_{day_timestamp}.log"
+    leader_node._conn.send_command(
+        f"sudo iperf3 --server --daemon --verbose --port {iperf3_port} "
+        f"--logfile {iperf3_server_log}"
+    )
+    ot_logger.info("iperf3 server started on OpenThread leader node")
 
 if TCP_TESTS:
     ot_logger.info("Running throughput tests using TCP")
@@ -257,11 +259,12 @@ if UDP_TESTS:
 
     ot_logger.info("Finished UDP throughput tests")
 
-leader_node.disconnect()
+if SHUTDOWN:
+    leader_node.disconnect()
 
-for router in router_nodes:
-    router_nodes[router].disconnect()
+    for router in router_nodes:
+        router_nodes[router].disconnect()
 
-ot_logger.info("Disconnected from all Raspberry Pis")
+    ot_logger.info("Disconnected from all Raspberry Pis")
 
 logging.shutdown()

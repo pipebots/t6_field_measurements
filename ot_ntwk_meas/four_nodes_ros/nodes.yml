@@ -1,0 +1,24 @@
+leader:
+  device_type: linux
+  host: ROSPi1.local
+  username: ubuntu
+  password: mirtthemoneylender
+
+routers:
+  router_1:
+    device_type: linux
+    host: ROSPi2.local
+    username: ubuntu
+    password: vajrasafahr
+
+  router_2:
+    device_type: linux
+    host: ROSPi3.local
+    username: ubuntu
+    password: strahdvonzarovich
+
+  router_3:
+    device_type: linux
+    host: ROSPi4.local
+    username: ubuntu
+    password: zarieltheredeemed
